@@ -221,7 +221,7 @@ export default function RightPanel() {
         </div>
 
         {/* Transition Grid */}
-        <div className="flex gap-2">
+        <div className="grid grid-cols-3 gap-2">
           {TRANSITIONS.map((t) => {
             const Icon = t.icon;
             const isActive = selectedTransition === t.id;
@@ -229,12 +229,12 @@ export default function RightPanel() {
               <button
                 key={t.id}
                 onClick={() => setSelectedTransition(t.id)}
-                className={`flex flex-col items-center justify-center gap-1 h-16 flex-1 rounded-md transition-all ${isActive
+                className={`flex flex-col items-center justify-center gap-1 h-14 rounded-md transition-all ${isActive
                     ? 'bg-cb-yellow text-cb-dark'
                     : 'bg-cb-input border border-cb-border text-cb-text-secondary hover:border-cb-text-muted'
                   }`}
               >
-                <Icon size={18} />
+                <Icon size={16} />
                 <span className={`text-[11px] ${isActive ? 'font-semibold' : 'font-medium'}`}>
                   {t.label}
                 </span>
