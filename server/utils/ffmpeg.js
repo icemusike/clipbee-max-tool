@@ -149,23 +149,43 @@ function normalizeClip(inputPath, outputPath, width, height, fps, segment = {}) 
       }
       command.duration(clipDuration);
 
+      const vf = `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}`;
+
       if (!info.hasAudio) {
-        command.input('anullsrc=channel_layout=stereo:sample_rate=44100');
-        command.inputOptions(['-f', 'lavfi']);
+        // Use filter_complex to generate silent audio — avoids the -f lavfi
+        // input format which is missing on some production FFmpeg builds.
+        command
+          .complexFilter([
+            `[0:v]${vf}[vout]`,
+            `anullsrc=channel_layout=stereo:sample_rate=44100[aout]`,
+          ])
+          .outputOptions([
+            '-map', '[vout]',
+            '-map', '[aout]',
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-ar', '44100',
+            '-ac', '2',
+            '-shortest',
+            '-movflags', '+faststart',
+          ]);
+      } else {
+        command
+          .outputOptions([
+            '-vf', vf,
+            '-c:v', 'libx264',
+            '-preset', 'fast',
+            '-c:a', 'aac',
+            '-b:a', '192k',
+            '-ar', '44100',
+            '-ac', '2',
+            '-movflags', '+faststart',
+          ]);
       }
 
       command
-        .outputOptions([
-          '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${fps}`,
-          '-c:v', 'libx264',
-          '-preset', 'fast',
-          '-c:a', 'aac',
-          '-b:a', '192k',
-          '-ar', '44100',
-          '-ac', '2',
-          ...(info.hasAudio ? [] : ['-shortest']),
-          '-movflags', '+faststart',
-        ])
         .output(outputPath)
         .on('end', async () => {
           try {
