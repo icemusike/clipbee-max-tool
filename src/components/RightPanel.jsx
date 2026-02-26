@@ -13,6 +13,7 @@ const TRANSITIONS = [
 const FORMATS = ['MP4', 'MOV', 'WEBM', 'AVI'];
 const QUALITIES = ['4K', '1080p', '720p', '480p'];
 const FPS_OPTIONS = [24, 30, 60];
+const RENDER_API_BASE = (import.meta.env.VITE_RENDER_API_URL || '').replace(/\/$/, '');
 
 function SelectDropdown({ value, options, onChange }) {
   const [open, setOpen] = useState(false);
@@ -74,6 +75,11 @@ export default function RightPanel() {
     setPreviewUrl(null);
 
     try {
+      const isVercelHosted = typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app');
+      if (isVercelHosted && !RENDER_API_BASE) {
+        throw new Error('Render is disabled on this Vercel deployment. Vercel functions reject large video uploads (FUNCTION_PAYLOAD_TOO_LARGE). Set VITE_RENDER_API_URL to a dedicated render backend.');
+      }
+
       const clipById = new Map(clips.map((clip) => [clip.id, clip]));
       const renderSegments = timelineClips
         .map((segment) => ({
@@ -103,18 +109,25 @@ export default function RightPanel() {
       formData.append('quality', outputQuality);
       formData.append('fps', outputFps);
 
-      const response = await fetch('/api/render', {
+      const response = await fetch(`${RENDER_API_BASE}/api/render`, {
         method: 'POST',
         body: formData,
       });
 
-      const data = await response.json();
+      const raw = await response.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = { error: raw || `Render failed (${response.status})` };
+      }
 
       if (response.ok && data.url) {
-        setPreviewUrl(data.url);
+        const resolvedUrl = /^https?:\/\//i.test(data.url) ? data.url : `${RENDER_API_BASE}${data.url}`;
+        setPreviewUrl(resolvedUrl);
         setPreviewFilename(data.filename);
       } else {
-        setRenderError(data.error || 'Unknown render error');
+        setRenderError(data.error || `Render failed (${response.status})`);
       }
     } catch (e) {
       setRenderError(e.message);
