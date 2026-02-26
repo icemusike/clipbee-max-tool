@@ -1,70 +1,149 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Minus, Plus, Magnet, Scissors, Film, Music, GripVertical, ArrowRight,
+  Minus, Plus, Magnet, Scissors, Film, Music, GripVertical, ArrowRight, StretchHorizontal,
 } from 'lucide-react';
 import useStore from '../store';
 
 function formatTimeShort(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+  const clamped = Math.max(0, Number(seconds) || 0);
+  const m = Math.floor(clamped / 60);
+  const s = Math.floor(clamped % 60);
+  const ms = Math.floor((clamped % 1) * 10);
+  return `${m}:${String(s).padStart(2, '0')}.${ms}`;
 }
 
 const CLIP_COLORS = ['#E8920D', '#F5C518', '#22C55E', '#EF4444', '#8B5CF6', '#06B6D4'];
+const TRACK_LEFT_GUTTER = 64;
+const BASE_PIXELS_PER_SECOND = 36;
 
 export default function Timeline() {
   const {
     clips, timelineClips, zoomLevel, setZoomLevel,
-    snapEnabled, toggleSnap, isPlaying, currentTime,
-    setCurrentTime,
+    snapEnabled, toggleSnap,
     selectedTransition, autoTransitions,
     playheadPosition, setPlayheadPosition,
     splitTimelineAtPlayhead,
   } = useStore();
 
-  const trackRef = useRef(null);
-  const totalDuration = timelineClips.reduce((acc, c) => acc + c.duration, 0);
+  const scrollerRef = useRef(null);
+  const [viewportWidth, setViewportWidth] = useState(1);
+  const [isScrubbing, setIsScrubbing] = useState(false);
 
-  // Generate time ruler marks
-  const timeMarks = [];
-  if (totalDuration > 0) {
-    const interval = totalDuration <= 30 ? 5 : totalDuration <= 120 ? 15 : 30;
-    for (let t = 0; t <= totalDuration; t += interval) {
-      timeMarks.push(t);
-    }
-    if (timeMarks[timeMarks.length - 1] < totalDuration) {
-      timeMarks.push(Math.ceil(totalDuration));
-    }
-  } else {
-    for (let t = 0; t <= 180; t += 30) timeMarks.push(t);
-  }
+  const totalDuration = timelineClips.reduce((acc, c) => acc + c.duration, 0);
+  const pixelsPerSecond = BASE_PIXELS_PER_SECOND * (zoomLevel / 100);
+  const minTimelineSeconds = Math.max(10, Math.ceil(totalDuration));
+  const timelineWidth = Math.max(viewportWidth - TRACK_LEFT_GUTTER, minTimelineSeconds * pixelsPerSecond);
+  const maxPlayableTime = totalDuration > 0 ? totalDuration : minTimelineSeconds;
+
+  useEffect(() => {
+    if (!scrollerRef.current) return undefined;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry) setViewportWidth(entry.contentRect.width);
+    });
+    observer.observe(scrollerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const clampTime = useCallback((time) => Math.max(0, Math.min(maxPlayableTime, time)), [maxPlayableTime]);
+
+  const clipBoundaries = useMemo(() => {
+    let cursor = 0;
+    const marks = [0];
+    timelineClips.forEach((tc) => {
+      cursor += tc.duration;
+      marks.push(cursor);
+    });
+    return marks;
+  }, [timelineClips]);
+
+  const snapTime = useCallback((time) => {
+    const clamped = clampTime(time);
+    if (!snapEnabled || timelineClips.length === 0) return clamped;
+
+    const thresholdSeconds = Math.max(0.08, 10 / pixelsPerSecond);
+    const grid = zoomLevel >= 200 ? 0.1 : zoomLevel >= 125 ? 0.25 : 0.5;
+    const gridSnap = Math.round(clamped / grid) * grid;
+
+    let best = gridSnap;
+    let bestDist = Math.abs(clamped - gridSnap);
+
+    clipBoundaries.forEach((mark) => {
+      const dist = Math.abs(clamped - mark);
+      if (dist < bestDist) {
+        best = mark;
+        bestDist = dist;
+      }
+    });
+
+    return bestDist <= thresholdSeconds ? clampTime(best) : clamped;
+  }, [clampTime, clipBoundaries, pixelsPerSecond, snapEnabled, timelineClips.length, zoomLevel]);
+
+  const timeFromClientX = useCallback((clientX) => {
+    if (!scrollerRef.current) return 0;
+    const rect = scrollerRef.current.getBoundingClientRect();
+    const localX = clientX - rect.left + scrollerRef.current.scrollLeft - TRACK_LEFT_GUTTER;
+    return localX / pixelsPerSecond;
+  }, [pixelsPerSecond]);
+
+  const movePlayhead = useCallback((time) => {
+    setPlayheadPosition(snapTime(time));
+  }, [setPlayheadPosition, snapTime]);
 
   const handleTrackClick = useCallback((e) => {
-    if (!trackRef.current || totalDuration === 0) return;
-    const rect = trackRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percent = Math.max(0, Math.min(1, x / rect.width));
-    const nextTime = percent * totalDuration;
-    setPlayheadPosition(nextTime);
-    setCurrentTime(nextTime);
-  }, [totalDuration, setPlayheadPosition, setCurrentTime]);
+    movePlayhead(timeFromClientX(e.clientX));
+  }, [movePlayhead, timeFromClientX]);
 
-  const effectivePlayhead = isPlaying ? currentTime : playheadPosition;
-  const playheadPercent = totalDuration > 0 ? (effectivePlayhead / totalDuration) * 100 : 0;
+  const handlePlayheadPointerDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsScrubbing(true);
 
-  // Calculate widths for each clip on the timeline
-  const getClipWidth = (duration) => {
-    if (totalDuration === 0) return 0;
-    return (duration / totalDuration) * 100;
+    const onMove = (event) => {
+      movePlayhead(timeFromClientX(event.clientX));
+    };
+    const onUp = () => {
+      setIsScrubbing(false);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
+  const fitTimeline = () => {
+    if (!scrollerRef.current || totalDuration <= 0) return;
+    const available = Math.max(1, scrollerRef.current.clientWidth - TRACK_LEFT_GUTTER - 16);
+    const desiredZoom = (available / (totalDuration * BASE_PIXELS_PER_SECOND)) * 100;
+    setZoomLevel(Math.round(desiredZoom / 5) * 5);
   };
 
   const handleSplit = () => {
-    splitTimelineAtPlayhead(effectivePlayhead);
+    splitTimelineAtPlayhead(playheadPosition);
   };
 
+  const rulerStep = useMemo(() => {
+    if (pixelsPerSecond >= 100) return 0.25;
+    if (pixelsPerSecond >= 70) return 0.5;
+    if (pixelsPerSecond >= 45) return 1;
+    return 2;
+  }, [pixelsPerSecond]);
+
+  const majorStep = rulerStep * 4;
+  const rulerTicks = useMemo(() => {
+    const ticks = [];
+    for (let t = 0; t <= maxPlayableTime + 0.0001; t += rulerStep) {
+      ticks.push(Number(t.toFixed(3)));
+    }
+    return ticks;
+  }, [maxPlayableTime, rulerStep]);
+
+  const playheadX = TRACK_LEFT_GUTTER + clampTime(playheadPosition) * pixelsPerSecond;
+  const splitDisabled = timelineClips.length === 0 || playheadPosition <= 0 || playheadPosition >= totalDuration;
+
   return (
-    <div className="flex flex-col bg-cb-timeline border-t border-cb-border shrink-0" style={{ height: 180 }}>
-      {/* Timeline Header */}
+    <div className="flex flex-col bg-cb-timeline border-t border-cb-border shrink-0" style={{ height: 200 }}>
       <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-center gap-3">
           <span className="font-grotesk text-sm font-semibold text-white">Timeline</span>
@@ -75,12 +154,19 @@ export default function Timeline() {
             >
               <Minus size={12} />
             </button>
-            <span className="text-[11px] text-cb-text-muted w-8 text-center">{zoomLevel}%</span>
+            <span className="text-[11px] text-cb-text-muted w-10 text-center">{zoomLevel}%</span>
             <button
               onClick={() => setZoomLevel(zoomLevel + 25)}
               className="w-6 h-6 rounded flex items-center justify-center bg-cb-surface-light text-cb-text-secondary hover:text-white transition-colors"
             >
               <Plus size={12} />
+            </button>
+            <button
+              onClick={fitTimeline}
+              className="w-6 h-6 rounded flex items-center justify-center bg-cb-surface-light text-cb-text-secondary hover:text-white transition-colors"
+              title="Fit timeline to viewport"
+            >
+              <StretchHorizontal size={12} />
             </button>
           </div>
         </div>
@@ -88,9 +174,7 @@ export default function Timeline() {
           <button
             onClick={toggleSnap}
             className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${
-              snapEnabled
-                ? 'bg-cb-surface-light text-cb-yellow'
-                : 'bg-cb-surface-light text-cb-text-secondary'
+              snapEnabled ? 'bg-cb-surface-light text-cb-yellow' : 'bg-cb-surface-light text-cb-text-secondary'
             }`}
           >
             <Magnet size={12} />
@@ -98,7 +182,12 @@ export default function Timeline() {
           </button>
           <button
             onClick={handleSplit}
-            className="flex items-center gap-1 px-2 py-1 rounded bg-cb-surface-light text-cb-text-secondary text-[11px] font-medium hover:text-white transition-colors"
+            disabled={splitDisabled}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+              splitDisabled
+                ? 'bg-cb-surface-light text-cb-text-muted cursor-not-allowed'
+                : 'bg-cb-surface-light text-cb-text-secondary hover:text-white'
+            }`}
           >
             <Scissors size={12} />
             Split
@@ -106,79 +195,101 @@ export default function Timeline() {
         </div>
       </div>
 
-      {/* Time Ruler */}
-      <div className="flex items-center h-5 px-4">
-        {timeMarks.map((t, i) => (
-          <div key={t} className={`flex items-center ${i < timeMarks.length - 1 ? 'flex-1' : ''}`}>
-            <span className="text-[9px] text-cb-text-muted font-inter">{formatTimeShort(t)}</span>
-            {i < timeMarks.length - 1 && <div className="flex-1" />}
-          </div>
-        ))}
-      </div>
-
-      {/* Playhead Line */}
-      <div className="relative h-0.5 mx-4">
-        <div
-          className="absolute top-0 w-0.5 h-full bg-cb-yellow"
-          style={{ left: `${playheadPercent}%` }}
-        />
-      </div>
-
-      {/* Track Area */}
-      <div className="flex flex-col gap-1.5 flex-1 px-4 py-1 min-h-0" ref={trackRef} onClick={handleTrackClick}>
-        {/* Video Track */}
-        <div className="flex items-center h-full">
-          <div className="flex items-center justify-center w-[60px] h-full shrink-0">
-            <Film size={14} className="text-cb-text-muted mr-1" />
-            <span className="text-[11px] font-semibold text-cb-text-muted">V1</span>
-          </div>
-          <div className="flex items-center h-full flex-1 min-w-0">
-            {timelineClips.map((tc, i) => {
-              const color = CLIP_COLORS[i % CLIP_COLORS.length];
-              return (
-                <div key={tc.id} className="flex items-center h-full">
-                  <div
-                    className="flex items-center gap-1.5 h-full rounded px-2 border"
-                    style={{
-                      flex: `${getClipWidth(tc.duration)} 0 0`,
-                      minWidth: 60,
-                      backgroundColor: `${color}22`,
-                      borderColor: color,
-                    }}
-                  >
-                    <GripVertical size={10} style={{ color }} className="shrink-0" />
-                    <span className="text-[10px] font-medium text-white truncate">{tc.name}</span>
-                    <span className="text-[9px] text-cb-text-muted shrink-0">{formatTimeShort(tc.duration)}</span>
+      <div className="flex-1 min-h-0 px-4 pb-2">
+        <div ref={scrollerRef} className="relative h-full overflow-auto" onClick={handleTrackClick}>
+          <div className="relative h-full min-w-full" style={{ width: timelineWidth + TRACK_LEFT_GUTTER }}>
+            <div className="sticky top-0 z-10 h-6 bg-cb-timeline border-b border-cb-border/40">
+              <div className="absolute inset-y-0 left-0 w-[64px] bg-cb-timeline border-r border-cb-border/40" />
+              {rulerTicks.map((t) => {
+                const left = TRACK_LEFT_GUTTER + (t * pixelsPerSecond);
+                const isMajor = Math.abs((t / majorStep) - Math.round(t / majorStep)) < 0.01;
+                return (
+                  <div key={t} className="absolute inset-y-0" style={{ left }}>
+                    <div className={`w-px ${isMajor ? 'h-4 mt-1 bg-cb-border' : 'h-2 mt-3 bg-cb-border/60'}`} />
+                    {isMajor && (
+                      <span className="absolute -top-0.5 left-1 text-[9px] text-cb-text-muted font-inter">
+                        {formatTimeShort(t)}
+                      </span>
+                    )}
                   </div>
+                );
+              })}
+            </div>
 
-                  {/* Transition marker */}
-                  {autoTransitions && i < timelineClips.length - 1 && (
-                    <div className="flex items-center justify-center w-7 h-full bg-cb-yellow shrink-0">
-                      <ArrowRight size={12} className="text-cb-dark" />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {timelineClips.length === 0 && (
-              <div className="flex-1 flex items-center justify-center text-[11px] text-cb-text-muted">
-                Add clips to see them here
+            <div className="relative h-[80px] border-b border-cb-border/40">
+              <div className="absolute inset-y-0 left-0 w-[64px] border-r border-cb-border/40 flex items-center justify-center">
+                <Film size={14} className="text-cb-text-muted mr-1" />
+                <span className="text-[11px] font-semibold text-cb-text-muted">V1</span>
               </div>
-            )}
+              {timelineClips.length > 0 ? (
+                (() => {
+                  let cursor = 0;
+                  return timelineClips.map((tc, i) => {
+                    const color = CLIP_COLORS[i % CLIP_COLORS.length];
+                    const left = TRACK_LEFT_GUTTER + (cursor * pixelsPerSecond);
+                    const width = Math.max(24, tc.duration * pixelsPerSecond);
+                    cursor += tc.duration;
+                    return (
+                      <div key={tc.id}>
+                        <div
+                          className="absolute top-2 h-[62px] rounded border px-2 flex items-center gap-1.5 overflow-hidden"
+                          style={{
+                            left,
+                            width,
+                            backgroundColor: `${color}22`,
+                            borderColor: color,
+                          }}
+                        >
+                          <GripVertical size={10} style={{ color }} className="shrink-0" />
+                          <span className="text-[10px] font-medium text-white truncate">{tc.name}</span>
+                          <span className="text-[9px] text-cb-text-muted shrink-0">{formatTimeShort(tc.duration)}</span>
+                        </div>
+                        {autoTransitions && i < timelineClips.length - 1 && (
+                          <div
+                            className="absolute top-2 h-[62px] w-3.5 bg-cb-yellow/80 border-y border-cb-yellow flex items-center justify-center"
+                            style={{ left: left + width - 1 }}
+                            title={`Transition: ${selectedTransition}`}
+                          >
+                            <ArrowRight size={10} className="text-cb-dark" />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()
+              ) : (
+                <div className="absolute inset-y-0 left-[64px] right-0 flex items-center justify-center text-[11px] text-cb-text-muted">
+                  Add clips to build your timeline
+                </div>
+              )}
+            </div>
+
+            <div className="relative h-[44px]">
+              <div className="absolute inset-y-0 left-0 w-[64px] border-r border-cb-border/40 flex items-center justify-center gap-1">
+                <Music size={12} className="text-cb-text-muted" />
+                <span className="text-[11px] font-semibold text-cb-text-muted">A1</span>
+              </div>
+              <div className="absolute left-[64px] right-0 top-2 h-[28px] rounded bg-cb-surface border border-cb-border px-2 flex items-center">
+                <span className="text-[10px] text-cb-text-muted truncate">
+                  {clips.length > 0 ? 'Audio from clips (auto-extracted)' : 'No audio'}
+                </span>
+              </div>
+            </div>
+
+            <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: playheadX }}>
+              <div className="w-px h-full bg-cb-yellow shadow-[0_0_0_1px_rgba(245,197,24,0.2)]" />
+            </div>
+            <button
+              onPointerDown={handlePlayheadPointerDown}
+              className={`absolute top-0 -translate-x-1/2 z-20 w-3 h-3 rounded-full bg-cb-yellow border border-cb-dark ${isScrubbing ? 'cursor-grabbing' : 'cursor-grab'}`}
+              style={{ left: playheadX }}
+              title={`Playhead ${formatTimeShort(playheadPosition)}`}
+            />
           </div>
         </div>
-
-        {/* Audio Track */}
-        <div className="flex items-center h-8 shrink-0">
-          <div className="flex items-center gap-1 justify-center w-[60px] h-full shrink-0">
-            <Music size={12} className="text-cb-text-muted" />
-            <span className="text-[11px] font-semibold text-cb-text-muted">A1</span>
-          </div>
-          <div className="flex items-center h-full flex-1 rounded bg-cb-surface px-2 min-w-0">
-            <span className="text-[10px] text-cb-text-muted truncate">
-              {clips.length > 0 ? 'Audio from clips (auto-extracted)' : 'No audio'}
-            </span>
-          </div>
+        <div className="flex items-center justify-between mt-1 text-[10px] text-cb-text-muted px-1">
+          <span>Playhead: {formatTimeShort(playheadPosition)}</span>
+          <span>{snapEnabled ? 'Snap ON' : 'Snap OFF'} • {Math.max(0, totalDuration).toFixed(2)}s total</span>
         </div>
       </div>
     </div>
