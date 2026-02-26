@@ -104,7 +104,7 @@ export default function RightPanel() {
       });
       formData.append('segments', JSON.stringify(segmentsPayload));
       formData.append('transition', selectedTransition);
-      formData.append('transitionDuration', transitionDuration);
+      formData.append('transitionDuration', autoTransitions ? transitionDuration : 0);
       formData.append('format', outputFormat.toLowerCase());
       formData.append('quality', outputQuality);
       formData.append('fps', outputFps);
