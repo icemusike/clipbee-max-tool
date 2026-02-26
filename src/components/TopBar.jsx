@@ -31,29 +31,7 @@ export default function TopBar() {
       <div className="flex items-center gap-4">
         {/* Logo */}
         <div className="flex items-center">
-          <span className="font-grotesk text-2xl font-extrabold text-white">Clip</span>
-          <span
-            className="font-grotesk text-[32px] font-black italic"
-            style={{
-              background: 'linear-gradient(180deg, #F5A623 0%, #FBCB18 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
-          >
-            B
-          </span>
-          <span
-            className="font-grotesk text-2xl font-extrabold"
-            style={{
-              background: 'linear-gradient(90deg, #F5A623 0%, #FBCB18 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
-          >
-            ee
-          </span>
-          <span className="w-1.5" />
-          <span className="font-grotesk text-sm font-medium text-cb-text-secondary">MaxVid</span>
+          <img src="/clipbee_logo.png" alt="ClipBee MaxVid Logo" className="h-8 object-contain" />
         </div>
 
         {/* Separator */}
