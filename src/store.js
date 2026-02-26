@@ -56,6 +56,11 @@ const useStore = create((set, get) => ({
     }),
 
   selectClip: (id) => set({ selectedClipId: id }),
+  clearClipPreviewUrl: (id) =>
+    set((state) => ({
+      clips: state.clips.map((c) => (c.id === id ? { ...c, url: '' } : c)),
+      selectedClipId: state.selectedClipId === id ? null : state.selectedClipId,
+    })),
 
   splitTimelineAtPlayhead: (positionSeconds) =>
     set((state) => {

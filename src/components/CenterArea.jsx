@@ -12,6 +12,7 @@ export default function CenterArea() {
   const {
     clips, selectedClipId, isPlaying, setIsPlaying,
     currentTime, setCurrentTime, volume, setVolume,
+    clearClipPreviewUrl,
   } = useStore();
 
   const videoRef = useRef(null);
@@ -22,8 +23,9 @@ export default function CenterArea() {
 
   const totalDuration = clips.reduce((acc, c) => acc + c.duration, 0);
 
-  // Find the currently active clip based on selectedClipId or first clip
-  const activeClip = clips.find((c) => c.id === selectedClipId) || clips[0];
+  const playableClips = clips.filter((c) => typeof c.url === 'string' && c.url.length > 0);
+  // Find the currently active playable clip based on selectedClipId or first playable clip
+  const activeClip = playableClips.find((c) => c.id === selectedClipId) || playableClips[0];
 
   useEffect(() => {
     const video = videoRef.current;
@@ -33,7 +35,14 @@ export default function CenterArea() {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !activeClip) return;
+    if (!video) return;
+    if (!activeClip?.url) {
+      if (video.src) {
+        video.removeAttribute('src');
+        video.load();
+      }
+      return;
+    }
 
     if (video.src !== activeClip.url) {
       video.src = activeClip.url;
@@ -90,6 +99,20 @@ export default function CenterArea() {
     setIsPlaying(false);
   };
 
+  const handleVideoError = () => {
+    if (activeClip?.id) {
+      clearClipPreviewUrl(activeClip.id);
+    }
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    }
+    setIsPlaying(false);
+    setCurrentTime(0);
+  };
+
   const toggleFullscreen = async () => {
     const container = previewContainerRef.current;
     if (!container) return;
@@ -131,6 +154,7 @@ export default function CenterArea() {
               className="w-full h-full object-contain bg-black"
               onTimeUpdate={handleTimeUpdate}
               onEnded={handleVideoEnded}
+              onError={handleVideoError}
               playsInline
             />
 
