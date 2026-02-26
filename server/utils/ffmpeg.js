@@ -75,7 +75,13 @@ export function mergeClips(inputPaths, outputPath, options = {}) {
       const effective = Math.min(requested, Math.max(0, minDuration - 0.05));
 
       if (effective > 0.01) {
-        await renderWithTransitions(normalizedClips, outputPath, getTransitionFilter(transition), effective);
+        try {
+          await renderWithTransitions(normalizedClips, outputPath, getTransitionFilter(transition), effective);
+        } catch (transitionErr) {
+          // Some ffmpeg builds reject specific transition graphs/types; fallback to reliable concat.
+          console.warn('Transition render failed, falling back to concat:', transitionErr?.message || transitionErr);
+          await concatNormalizedClips(normalizedClips, outputPath);
+        }
       } else {
         await concatNormalizedClips(normalizedClips, outputPath);
       }
@@ -170,23 +176,23 @@ function renderWithTransitions(normalizedClips, outputPath, transitionType, tran
       command.input(clip.path);
     });
 
-    let videoLabel = '[0:v]';
-    let audioLabel = '[0:a]';
+    let videoLabel = '0:v';
+    let audioLabel = '0:a';
     let cumulativeDuration = normalizedClips[0].duration;
     const filterParts = [];
 
     for (let i = 1; i < normalizedClips.length; i++) {
-      const nextVideoLabel = `[${i}:v]`;
-      const nextAudioLabel = `[${i}:a]`;
-      const videoOut = `[v${i}]`;
-      const audioOut = `[a${i}]`;
+      const nextVideoLabel = `${i}:v`;
+      const nextAudioLabel = `${i}:a`;
+      const videoOut = `v${i}`;
+      const audioOut = `a${i}`;
       const offset = Math.max(0, cumulativeDuration - transitionDuration);
 
       filterParts.push(
-        `${videoLabel}${nextVideoLabel}xfade=transition=${transitionType}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}${videoOut}`,
+        `[${videoLabel}][${nextVideoLabel}]xfade=transition=${transitionType}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${videoOut}]`,
       );
       filterParts.push(
-        `${audioLabel}${nextAudioLabel}acrossfade=d=${transitionDuration.toFixed(3)}${audioOut}`,
+        `[${audioLabel}][${nextAudioLabel}]acrossfade=d=${transitionDuration.toFixed(3)}[${audioOut}]`,
       );
 
       videoLabel = videoOut;
@@ -197,8 +203,8 @@ function renderWithTransitions(normalizedClips, outputPath, transitionType, tran
     command
       .complexFilter(filterParts)
       .outputOptions([
-        '-map', videoLabel,
-        '-map', audioLabel,
+        '-map', `[${videoLabel}]`,
+        '-map', `[${audioLabel}]`,
         '-c:v', 'libx264',
         '-preset', 'fast',
         '-c:a', 'aac',
@@ -227,7 +233,7 @@ function cleanupFiles(paths) {
 function getTransitionFilter(transition) {
   const map = {
     fade: 'fade',
-    dissolve: 'dissolve',
+    dissolve: 'fade',
     slide: 'slideleft',
   };
   return map[transition] || 'fade';
