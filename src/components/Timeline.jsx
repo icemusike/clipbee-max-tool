@@ -16,8 +16,10 @@ export default function Timeline() {
   const {
     clips, timelineClips, zoomLevel, setZoomLevel,
     snapEnabled, toggleSnap, isPlaying, currentTime,
+    setCurrentTime,
     selectedTransition, autoTransitions,
     playheadPosition, setPlayheadPosition,
+    splitTimelineAtPlayhead,
   } = useStore();
 
   const trackRef = useRef(null);
@@ -42,10 +44,13 @@ export default function Timeline() {
     const rect = trackRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const percent = Math.max(0, Math.min(1, x / rect.width));
-    setPlayheadPosition(percent * totalDuration);
-  }, [totalDuration, setPlayheadPosition]);
+    const nextTime = percent * totalDuration;
+    setPlayheadPosition(nextTime);
+    setCurrentTime(nextTime);
+  }, [totalDuration, setPlayheadPosition, setCurrentTime]);
 
-  const playheadPercent = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
+  const effectivePlayhead = isPlaying ? currentTime : playheadPosition;
+  const playheadPercent = totalDuration > 0 ? (effectivePlayhead / totalDuration) * 100 : 0;
 
   // Calculate widths for each clip on the timeline
   const getClipWidth = (duration) => {
@@ -54,8 +59,7 @@ export default function Timeline() {
   };
 
   const handleSplit = () => {
-    // Split at current playhead position - placeholder
-    console.log('Split at', currentTime);
+    splitTimelineAtPlayhead(effectivePlayhead);
   };
 
   return (

@@ -20,11 +20,13 @@ const useStore = create((set, get) => ({
     set((state) => ({
       clips: [...state.clips, clip],
       timelineClips: [...state.timelineClips, {
-        id: clip.id,
+        id: uuidv4(),
         clipId: clip.id,
         name: clip.name.replace(/\.[^/.]+$/, ''),
         duration: clip.duration,
         color: clip.color,
+        sourceStart: 0,
+        sourceEnd: clip.duration,
       }],
     }));
     return clip;
@@ -42,13 +44,65 @@ const useStore = create((set, get) => ({
       const clips = [...state.clips];
       const [moved] = clips.splice(fromIndex, 1);
       clips.splice(toIndex, 0, moved);
-      const timelineClips = [...state.timelineClips];
-      const [movedTc] = timelineClips.splice(fromIndex, 1);
-      timelineClips.splice(toIndex, 0, movedTc);
+
+      // Keep timeline segments grouped by clip while preserving intra-clip split order.
+      const timelineByClipId = state.timelineClips.reduce((acc, tc) => {
+        if (!acc[tc.clipId]) acc[tc.clipId] = [];
+        acc[tc.clipId].push(tc);
+        return acc;
+      }, {});
+      const timelineClips = clips.flatMap((c) => timelineByClipId[c.id] || []);
       return { clips, timelineClips };
     }),
 
   selectClip: (id) => set({ selectedClipId: id }),
+
+  splitTimelineAtPlayhead: (positionSeconds) =>
+    set((state) => {
+      const splitPos = Number(positionSeconds);
+      if (!Number.isFinite(splitPos) || splitPos <= 0 || state.timelineClips.length === 0) {
+        return {};
+      }
+
+      let cursor = 0;
+      let splitIndex = -1;
+      for (let i = 0; i < state.timelineClips.length; i++) {
+        const tc = state.timelineClips[i];
+        const end = cursor + tc.duration;
+        if (splitPos > cursor + 0.05 && splitPos < end - 0.05) {
+          splitIndex = i;
+          break;
+        }
+        cursor = end;
+      }
+
+      if (splitIndex === -1) return {};
+
+      const target = state.timelineClips[splitIndex];
+      const firstDuration = splitPos - cursor;
+      const secondDuration = target.duration - firstDuration;
+      if (firstDuration <= 0.05 || secondDuration <= 0.05) return {};
+
+      const splitSourceTime = (target.sourceStart || 0) + firstDuration;
+      const leftSegment = {
+        ...target,
+        id: uuidv4(),
+        duration: firstDuration,
+        sourceStart: target.sourceStart || 0,
+        sourceEnd: splitSourceTime,
+      };
+      const rightSegment = {
+        ...target,
+        id: uuidv4(),
+        duration: secondDuration,
+        sourceStart: splitSourceTime,
+        sourceEnd: target.sourceEnd ?? splitSourceTime + secondDuration,
+      };
+
+      const timelineClips = [...state.timelineClips];
+      timelineClips.splice(splitIndex, 1, leftSegment, rightSegment);
+      return { timelineClips };
+    }),
 
   // Timeline
   timelineClips: [],
@@ -102,6 +156,79 @@ const useStore = create((set, get) => ({
   // Navigation
   activeNav: 'new-project',
   setActiveNav: (nav) => set({ activeNav: nav }),
+
+  saveProject: () => {
+    const state = get();
+    const payload = {
+      timestamp: Date.now(),
+      clips: state.clips.map((c) => ({
+        id: c.id,
+        name: c.name,
+        size: c.size,
+        duration: c.duration,
+        thumbnail: c.thumbnail,
+        color: c.color,
+      })),
+      timelineClips: state.timelineClips,
+      settings: {
+        selectedTransition: state.selectedTransition,
+        transitionDuration: state.transitionDuration,
+        autoTransitions: state.autoTransitions,
+        outputFormat: state.outputFormat,
+        outputQuality: state.outputQuality,
+        outputFps: state.outputFps,
+      },
+    };
+    localStorage.setItem('clipbee-project-last', JSON.stringify(payload));
+    return payload;
+  },
+
+  loadProject: () => {
+    const raw = localStorage.getItem('clipbee-project-last');
+    if (!raw) return false;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed.clips)) return false;
+
+      set((state) => {
+        state.clips.forEach((clip) => {
+          try { URL.revokeObjectURL(clip.url); } catch { /* no-op */ }
+        });
+        return {
+          clips: parsed.clips.map((c) => ({ ...c, file: null, url: '' })),
+          timelineClips: Array.isArray(parsed.timelineClips) ? parsed.timelineClips : [],
+          selectedTransition: parsed.settings?.selectedTransition || state.selectedTransition,
+          transitionDuration: parsed.settings?.transitionDuration ?? state.transitionDuration,
+          autoTransitions: parsed.settings?.autoTransitions ?? state.autoTransitions,
+          outputFormat: parsed.settings?.outputFormat || state.outputFormat,
+          outputQuality: parsed.settings?.outputQuality || state.outputQuality,
+          outputFps: parsed.settings?.outputFps || state.outputFps,
+          selectedClipId: null,
+          isPlaying: false,
+          currentTime: 0,
+          playheadPosition: 0,
+        };
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  resetProject: () =>
+    set((state) => {
+      state.clips.forEach((clip) => {
+        try { URL.revokeObjectURL(clip.url); } catch { /* no-op */ }
+      });
+      return {
+        clips: [],
+        timelineClips: [],
+        selectedClipId: null,
+        isPlaying: false,
+        currentTime: 0,
+        playheadPosition: 0,
+      };
+    }),
 }));
 
 export default useStore;

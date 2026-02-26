@@ -1,10 +1,23 @@
 import {
   Sparkles, LayoutGrid, Circle, Coins, Settings, ChevronDown,
 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import useStore from '../store';
 
 export default function TopBar() {
-  const { activeNav, setActiveNav } = useStore();
+  const { activeNav, setActiveNav, saveProject, loadProject, resetProject } = useStore();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+        setSettingsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const navItems = [
     { id: 'new-project', label: 'New Project', icon: Sparkles, primary: true },
@@ -85,9 +98,37 @@ export default function TopBar() {
         </div>
 
         {/* Settings */}
-        <button className="text-cb-text-secondary hover:text-white transition-colors">
-          <Settings size={20} />
-        </button>
+        <div className="relative" ref={settingsRef}>
+          <button
+            onClick={() => setSettingsOpen((v) => !v)}
+            className="text-cb-text-secondary hover:text-white transition-colors"
+            title="Project settings"
+          >
+            <Settings size={20} />
+          </button>
+          {settingsOpen && (
+            <div className="absolute right-0 mt-2 w-44 rounded-md border border-cb-border bg-cb-surface-light shadow-xl py-1 z-30">
+              <button
+                onClick={() => { saveProject(); setSettingsOpen(false); }}
+                className="w-full text-left px-3 py-2 text-xs text-cb-text-secondary hover:text-white hover:bg-cb-input"
+              >
+                Save Project
+              </button>
+              <button
+                onClick={() => { loadProject(); setSettingsOpen(false); }}
+                className="w-full text-left px-3 py-2 text-xs text-cb-text-secondary hover:text-white hover:bg-cb-input"
+              >
+                Load Last Saved
+              </button>
+              <button
+                onClick={() => { resetProject(); setSettingsOpen(false); }}
+                className="w-full text-left px-3 py-2 text-xs text-red-300 hover:text-red-200 hover:bg-cb-input"
+              >
+                Reset Project
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Avatar */}
         <div className="w-8 h-8 rounded-full bg-cb-orange flex items-center justify-center">

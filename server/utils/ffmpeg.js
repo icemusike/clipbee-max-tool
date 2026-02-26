@@ -45,6 +45,7 @@ export function mergeClips(inputPaths, outputPath, options = {}) {
     fps = 30,
     width = 1920,
     height = 1080,
+    segments = [],
   } = options;
 
   return new Promise(async (resolve, reject) => {
@@ -67,7 +68,8 @@ export function mergeClips(inputPaths, outputPath, options = {}) {
       for (let i = 0; i < inputPaths.length; i++) {
         const normPath = join(outputDir, `_norm_${i}.mp4`);
         normalizedPaths.push(normPath);
-        await normalizeClip(inputPaths[i], normPath, width, height, fps);
+        const segment = segments[i] || {};
+        await normalizeClip(inputPaths[i], normPath, width, height, fps, segment);
       }
 
       if (normalizedPaths.length === 1) {
@@ -112,12 +114,19 @@ export function mergeClips(inputPaths, outputPath, options = {}) {
  * Normalize a single clip: scale to target resolution, set fps,
  * and ensure it has an audio stream (add silent audio if missing).
  */
-function normalizeClip(inputPath, outputPath, width, height, fps) {
+function normalizeClip(inputPath, outputPath, width, height, fps, segment = {}) {
   return new Promise(async (resolve, reject) => {
     try {
       const info = await getVideoInfo(inputPath);
+      const clipStart = Math.max(0, Number(segment.start || 0));
+      const clipEnd = Math.max(clipStart, Number(segment.end || info.duration || 0));
+      const clipDuration = Math.max(0.05, clipEnd - clipStart);
 
       const command = ffmpeg(inputPath);
+      if (clipStart > 0) {
+        command.inputOptions(['-ss', clipStart.toFixed(3)]);
+      }
+      command.duration(clipDuration);
 
       // If no audio, add a silent audio source
       if (!info.hasAudio) {

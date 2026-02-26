@@ -9,8 +9,11 @@ import { mergeClips, getVideoInfo } from '../utils/ffmpeg.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const uploadsDir = join(__dirname, '..', '..', 'uploads');
-const outputDir = join(__dirname, '..', '..', 'output');
+const isVercel = process.env.VERCEL === '1';
+const baseDir = isVercel ? '/tmp' : join(__dirname, '..', '..');
+
+const uploadsDir = join(baseDir, 'uploads');
+const outputDir = join(baseDir, 'output');
 
 // Ensure directories exist
 [uploadsDir, outputDir].forEach((dir) => {
@@ -104,6 +107,7 @@ router.post('/render', upload.array('clips', 20), async (req, res) => {
       format = 'mp4',
       quality = '1080p',
       fps = '30',
+      segments,
     } = req.body;
 
     const inputPaths = files.map((f) => f.path);
@@ -129,6 +133,14 @@ router.post('/render', upload.array('clips', 20), async (req, res) => {
       fps: parseInt(fps, 10),
       width: resolution.width,
       height: resolution.height,
+      segments: (() => {
+        try {
+          const parsed = JSON.parse(segments || '[]');
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      })(),
     });
 
     console.log(`Render complete: ${outputFilename}`);

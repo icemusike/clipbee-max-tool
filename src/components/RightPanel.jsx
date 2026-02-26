@@ -59,6 +59,7 @@ export default function RightPanel() {
     outputFps, setOutputFps,
     isRendering, setIsRendering, setRenderProgress,
     clips,
+    timelineClips,
   } = useStore();
 
   const [previewUrl, setPreviewUrl] = useState(null);
@@ -66,18 +67,36 @@ export default function RightPanel() {
   const [renderError, setRenderError] = useState(null);
 
   const handleRender = async () => {
-    if (clips.length === 0) return;
+    if (clips.length === 0 || timelineClips.length === 0) return;
     setIsRendering(true);
     setRenderProgress(0);
     setRenderError(null);
     setPreviewUrl(null);
 
     try {
+      const clipById = new Map(clips.map((clip) => [clip.id, clip]));
+      const renderSegments = timelineClips
+        .map((segment) => ({
+          segment,
+          clip: clipById.get(segment.clipId),
+        }))
+        .filter((item) => Boolean(item.clip?.file));
+
+      if (renderSegments.length === 0) {
+        throw new Error('No renderable clips. Please add video files before rendering.');
+      }
+
       // Upload clips to server
       const formData = new FormData();
-      clips.forEach((clip) => {
+      const segmentsPayload = [];
+      renderSegments.forEach(({ clip, segment }) => {
         formData.append('clips', clip.file);
+        segmentsPayload.push({
+          start: Math.max(0, Number(segment.sourceStart || 0)),
+          end: Math.max(0, Number(segment.sourceEnd || segment.duration || 0)),
+        });
       });
+      formData.append('segments', JSON.stringify(segmentsPayload));
       formData.append('transition', selectedTransition);
       formData.append('transitionDuration', transitionDuration);
       formData.append('format', outputFormat.toLowerCase());
@@ -257,10 +276,10 @@ export default function RightPanel() {
       {/* Render Button */}
       <button
         onClick={handleRender}
-        disabled={isRendering || clips.length === 0}
+        disabled={isRendering || clips.length === 0 || timelineClips.length === 0}
         className={`flex items-center justify-center gap-2 h-11 rounded-lg font-grotesk text-sm font-semibold transition-all ${isRendering
             ? 'bg-cb-yellow/60 text-cb-dark cursor-wait'
-            : clips.length === 0
+            : clips.length === 0 || timelineClips.length === 0
               ? 'bg-cb-surface-light text-cb-text-muted cursor-not-allowed'
               : 'bg-cb-yellow text-cb-dark hover:brightness-110 active:scale-[0.98]'
           }`}
@@ -276,4 +295,3 @@ export default function RightPanel() {
     </aside>
   );
 }
-

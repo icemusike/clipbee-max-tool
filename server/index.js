@@ -11,14 +11,17 @@ const __dirname = dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const isVercel = process.env.VERCEL === '1';
+const baseDir = isVercel ? '/tmp' : join(__dirname, '..');
+
 // Ensure uploads directory exists
-const uploadsDir = join(__dirname, '..', 'uploads');
+const uploadsDir = join(baseDir, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
 // Ensure output directory exists
-const outputDir = join(__dirname, '..', 'output');
+const outputDir = join(baseDir, 'output');
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });
 }
@@ -49,6 +52,10 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`ClipBee MaxVid server running on http://localhost:${PORT}`);
-});
+if (!isVercel) {
+  app.listen(PORT, () => {
+    console.log(`ClipBee MaxVid server running on http://localhost:${PORT}`);
+  });
+}
+
+export default app;

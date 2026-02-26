@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Play, Pause, Maximize2, Volume2, VolumeX } from 'lucide-react';
+import { Play, Pause, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
 import useStore from '../store';
 
 function formatTime(seconds) {
@@ -16,7 +16,9 @@ export default function CenterArea() {
 
   const videoRef = useRef(null);
   const progressRef = useRef(null);
+  const previewContainerRef = useRef(null);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const totalDuration = clips.reduce((acc, c) => acc + c.duration, 0);
 
@@ -38,6 +40,22 @@ export default function CenterArea() {
       video.load();
     }
   }, [activeClip]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(currentTime)) return;
+    if (Math.abs(video.currentTime - currentTime) > 0.25) {
+      video.currentTime = currentTime;
+    }
+  }, [currentTime]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
@@ -72,6 +90,16 @@ export default function CenterArea() {
     setIsPlaying(false);
   };
 
+  const toggleFullscreen = async () => {
+    const container = previewContainerRef.current;
+    if (!container) return;
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    await container.requestFullscreen();
+  };
+
   const videoDuration = videoRef.current?.duration || activeClip?.duration || 0;
   const progressPercent = videoDuration > 0 ? (currentTime / videoDuration) * 100 : 0;
 
@@ -84,14 +112,18 @@ export default function CenterArea() {
           <span className="text-xs text-cb-text-muted">
             Total: {formatTime(totalDuration)}
           </span>
-          <button className="text-cb-text-secondary hover:text-white transition-colors">
-            <Maximize2 size={18} />
+          <button
+            onClick={toggleFullscreen}
+            className="text-cb-text-secondary hover:text-white transition-colors"
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          >
+            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
           </button>
         </div>
       </div>
 
       {/* Preview Player */}
-      <div className="relative flex-1 rounded-[10px] overflow-hidden bg-cb-dark flex items-center justify-center min-h-0">
+      <div ref={previewContainerRef} className="relative flex-1 rounded-[10px] overflow-hidden bg-cb-dark flex items-center justify-center min-h-0">
         {activeClip ? (
           <>
             <video
