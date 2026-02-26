@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"/c/AI Build Tools/ClipBeeMAXTool\" && npx vite build 2>&1)"
+    ]
+  }
+}
