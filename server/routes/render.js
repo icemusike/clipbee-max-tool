@@ -10,7 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const isVercel = process.env.VERCEL === '1';
-const baseDir = isVercel ? '/tmp' : join(__dirname, '..', '..');
+const baseDir = process.env.STORAGE_DIR || (isVercel ? '/tmp' : join(__dirname, '..', '..'));
 
 const uploadsDir = join(baseDir, 'uploads');
 const outputDir = join(baseDir, 'output');

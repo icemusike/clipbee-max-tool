@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 const isVercel = process.env.VERCEL === '1';
-const baseDir = isVercel ? '/tmp' : join(__dirname, '..');
+const baseDir = process.env.STORAGE_DIR || (isVercel ? '/tmp' : join(__dirname, '..'));
 
 // Ensure uploads directory exists
 const uploadsDir = join(baseDir, 'uploads');
@@ -43,9 +43,9 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// In production, serve the built frontend
-if (process.env.NODE_ENV === 'production') {
-  const distPath = join(__dirname, '..', 'dist');
+// Serve built frontend whenever dist exists (works for Railway/production).
+const distPath = join(__dirname, '..', 'dist');
+if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (req, res) => {
     res.sendFile(join(distPath, 'index.html'));
