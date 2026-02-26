@@ -1,6 +1,6 @@
 import { useCallback, useRef } from 'react';
 import {
-  Upload, FolderOpen, GripVertical, Trash2, Film,
+  Upload, FolderOpen, GripVertical, Trash2, Film, ArrowRight,
 } from 'lucide-react';
 import useStore from '../store';
 import {
@@ -22,7 +22,7 @@ function formatSize(bytes) {
   return `${mb.toFixed(1)} MB`;
 }
 
-function SortableClip({ clip, isSelected, onSelect, onRemove }) {
+function SortableClip({ clip, isSelected, onSelect, onRemove, onTimelineDragStart }) {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: clip.id });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -64,6 +64,18 @@ function SortableClip({ clip, isSelected, onSelect, onRemove }) {
         className="text-cb-text-muted hover:text-cb-red transition-colors"
       >
         <Trash2 size={14} />
+      </button>
+
+      <button
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          onTimelineDragStart(e, clip.id);
+        }}
+        title="Drag to timeline"
+        className="text-cb-text-muted hover:text-cb-yellow transition-colors cursor-grab active:cursor-grabbing"
+      >
+        <ArrowRight size={14} />
       </button>
     </div>
   );
@@ -131,6 +143,11 @@ export default function LeftPanel() {
     e.stopPropagation();
   };
 
+  const handleTimelineDragStart = (e, clipId) => {
+    e.dataTransfer.setData('application/x-clip-id', clipId);
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+
   return (
     <aside className="w-[380px] flex flex-col gap-4 p-5 bg-cb-surface border-r border-cb-border shrink-0 overflow-hidden">
       {/* Header */}
@@ -179,6 +196,7 @@ export default function LeftPanel() {
                 isSelected={selectedClipId === clip.id}
                 onSelect={selectClip}
                 onRemove={removeClip}
+                onTimelineDragStart={handleTimelineDragStart}
               />
             ))}
           </SortableContext>

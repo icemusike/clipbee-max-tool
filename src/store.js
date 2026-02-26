@@ -59,18 +59,41 @@ const useStore = create((set, get) => ({
     set((state) => {
       if (
         fromIndex < 0
-        || toIndex < 0
         || fromIndex >= state.timelineClips.length
-        || toIndex >= state.timelineClips.length
-        || fromIndex === toIndex
       ) {
         return {};
       }
       const timelineClips = [...state.timelineClips];
       const [moved] = timelineClips.splice(fromIndex, 1);
-      timelineClips.splice(toIndex, 0, moved);
+      const boundedIndex = Math.max(0, Math.min(toIndex, timelineClips.length));
+      timelineClips.splice(boundedIndex, 0, moved);
       return { timelineClips };
     }),
+
+  insertTimelineClipFromLibrary: (clipId, index) =>
+    set((state) => {
+      const clip = state.clips.find((c) => c.id === clipId);
+      if (!clip) return {};
+
+      const segment = {
+        id: uuidv4(),
+        clipId: clip.id,
+        name: clip.name.replace(/\.[^/.]+$/, ''),
+        duration: clip.duration,
+        color: clip.color,
+        sourceStart: 0,
+        sourceEnd: clip.duration,
+      };
+      const timelineClips = [...state.timelineClips];
+      const insertAt = Math.max(0, Math.min(index, timelineClips.length));
+      timelineClips.splice(insertAt, 0, segment);
+      return { timelineClips };
+    }),
+
+  removeTimelineClip: (timelineClipId) =>
+    set((state) => ({
+      timelineClips: state.timelineClips.filter((tc) => tc.id !== timelineClipId),
+    })),
 
   selectClip: (id) => set({ selectedClipId: id }),
   clearClipPreviewUrl: (id) =>

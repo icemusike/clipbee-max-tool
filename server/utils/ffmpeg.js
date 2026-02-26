@@ -195,10 +195,10 @@ function renderWithTransitions(normalizedClips, outputPath, transitionType, tran
     }
 
     command
-      .complexFilter(filterParts, ['v', 'a'])
+      .complexFilter(filterParts)
       .outputOptions([
-        '-map', '[v]',
-        '-map', '[a]',
+        '-map', videoLabel,
+        '-map', audioLabel,
         '-c:v', 'libx264',
         '-preset', 'fast',
         '-c:a', 'aac',

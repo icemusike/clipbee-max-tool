@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Minus, Plus, Magnet, Scissors, Film, Music, GripVertical, ArrowRight, StretchHorizontal,
+  Minus, Plus, Magnet, Scissors, Film, Music, GripVertical, ArrowRight, StretchHorizontal, X,
 } from 'lucide-react';
 import useStore from '../store';
 
@@ -23,13 +23,15 @@ export default function Timeline() {
     selectedTransition, autoTransitions,
     playheadPosition, setPlayheadPosition,
     splitTimelineAtPlayhead,
-    moveTimelineClip,
+    moveTimelineClip, insertTimelineClipFromLibrary, removeTimelineClip,
   } = useStore();
 
   const scrollerRef = useRef(null);
   const [viewportWidth, setViewportWidth] = useState(1);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [draggingIndex, setDraggingIndex] = useState(null);
+  const [dropIndex, setDropIndex] = useState(null);
+  const [dropLineX, setDropLineX] = useState(null);
 
   const totalDuration = timelineClips.reduce((acc, c) => acc + c.duration, 0);
   const pixelsPerSecond = BASE_PIXELS_PER_SECOND * (zoomLevel / 100);
@@ -134,24 +136,62 @@ export default function Timeline() {
       if (t < mid) return i;
       cursor += timelineClips[i].duration;
     }
-    return timelineClips.length - 1;
+    return timelineClips.length;
   }, [clampTime, timelineClips]);
+
+  const getBoundaryTimeAtIndex = useCallback((index) => {
+    let t = 0;
+    for (let i = 0; i < Math.max(0, Math.min(index, timelineClips.length)); i++) {
+      t += timelineClips[i].duration;
+    }
+    return t;
+  }, [timelineClips]);
+
+  const updateDropGuide = useCallback((clientX, dataTransfer) => {
+    if (!dataTransfer) return;
+    const dragTypes = Array.from(dataTransfer.types || []);
+    const supportsTimelineDrop =
+      dragTypes.includes('application/x-clip-id') || dragTypes.includes('text/plain');
+    if (!supportsTimelineDrop) return;
+
+    const targetTime = timeFromClientX(clientX);
+    const nextDropIndex = getDropIndexFromTime(targetTime);
+    setDropIndex(nextDropIndex);
+    const boundaryTime = getBoundaryTimeAtIndex(nextDropIndex);
+    setDropLineX(TRACK_LEFT_GUTTER + (boundaryTime * pixelsPerSecond));
+  }, [getBoundaryTimeAtIndex, getDropIndexFromTime, pixelsPerSecond, timeFromClientX]);
 
   const handleDragOver = (e) => {
     e.preventDefault();
+    updateDropGuide(e.clientX, e.dataTransfer);
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
-    const from = Number(e.dataTransfer.getData('text/plain'));
-    if (!Number.isFinite(from)) {
-      setDraggingIndex(null);
-      return;
-    }
+
     const targetTime = timeFromClientX(e.clientX);
-    const to = getDropIndexFromTime(targetTime);
-    moveTimelineClip(from, to);
+    const insertionIndex = getDropIndexFromTime(targetTime);
+    const externalClipId = e.dataTransfer.getData('application/x-clip-id');
+
+    if (externalClipId) {
+      insertTimelineClipFromLibrary(externalClipId, insertionIndex);
+    } else {
+      const from = Number(e.dataTransfer.getData('text/plain'));
+      if (Number.isFinite(from)) {
+        const adjustedIndex = from < insertionIndex ? insertionIndex - 1 : insertionIndex;
+        moveTimelineClip(from, adjustedIndex);
+      }
+    }
+
     setDraggingIndex(null);
+    setDropIndex(null);
+    setDropLineX(null);
+  };
+
+  const handleDragLeave = (e) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setDropIndex(null);
+    setDropLineX(null);
   };
 
   const rulerStep = useMemo(() => {
@@ -233,6 +273,7 @@ export default function Timeline() {
           onClick={handleTrackClick}
           onDragOver={handleDragOver}
           onDrop={handleDrop}
+          onDragLeave={handleDragLeave}
         >
           <div className="relative h-full min-w-full" style={{ width: timelineWidth + TRACK_LEFT_GUTTER }}>
             <div className="sticky top-0 z-10 h-6 bg-cb-timeline border-b border-cb-border/40">
@@ -277,7 +318,11 @@ export default function Timeline() {
                             e.dataTransfer.effectAllowed = 'move';
                             setDraggingIndex(i);
                           }}
-                          onDragEnd={() => setDraggingIndex(null)}
+                          onDragEnd={() => {
+                            setDraggingIndex(null);
+                            setDropIndex(null);
+                            setDropLineX(null);
+                          }}
                           style={{
                             left,
                             width,
@@ -290,6 +335,16 @@ export default function Timeline() {
                           <GripVertical size={10} style={{ color }} className="shrink-0" />
                           <span className="text-[10px] font-medium text-white truncate">{tc.name}</span>
                           <span className="text-[9px] text-cb-text-muted shrink-0">{formatTimeShort(tc.duration)}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeTimelineClip(tc.id);
+                            }}
+                            className="ml-auto text-cb-text-muted hover:text-cb-red transition-colors"
+                            title="Remove from timeline"
+                          >
+                            <X size={10} />
+                          </button>
                         </div>
                         {autoTransitions && i < timelineClips.length - 1 && (
                           <div
@@ -306,7 +361,7 @@ export default function Timeline() {
                 })()
               ) : (
                 <div className="absolute inset-y-0 left-[64px] right-0 flex items-center justify-center text-[11px] text-cb-text-muted">
-                  Add clips to build your timeline
+                  Drag clips here from the left panel
                 </div>
               )}
             </div>
@@ -326,6 +381,11 @@ export default function Timeline() {
             <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: playheadX }}>
               <div className="w-px h-full bg-cb-yellow shadow-[0_0_0_1px_rgba(245,197,24,0.2)]" />
             </div>
+            {dropIndex !== null && dropLineX !== null && (
+              <div className="absolute top-0 bottom-0 pointer-events-none" style={{ left: dropLineX }}>
+                <div className="w-0.5 h-full bg-emerald-400 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
+              </div>
+            )}
             <button
               onPointerDown={handlePlayheadPointerDown}
               className={`absolute top-0 -translate-x-1/2 z-20 w-3 h-3 rounded-full bg-cb-yellow border border-cb-dark ${isScrubbing ? 'cursor-grabbing' : 'cursor-grab'}`}
@@ -336,7 +396,7 @@ export default function Timeline() {
         </div>
         <div className="flex items-center justify-between mt-1 text-[10px] text-cb-text-muted px-1">
           <span>Playhead: {formatTimeShort(playheadPosition)}</span>
-          <span>{snapEnabled ? 'Snap ON' : 'Snap OFF'} • {Math.max(0, totalDuration).toFixed(2)}s total</span>
+          <span>{snapEnabled ? 'Snap ON' : 'Snap OFF'} - {Math.max(0, totalDuration).toFixed(2)}s total</span>
         </div>
       </div>
     </div>
