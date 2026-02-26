@@ -1,11 +1,39 @@
 import {
   Sparkles,
 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import useStore from '../store';
 import { getClientSessionId } from '../utils/session';
 
 export default function TopBar() {
   const { setActiveNav, resetProject } = useStore();
+  const [liveUsers, setLiveUsers] = useState(0);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const fetchStats = async () => {
+      try {
+        const response = await fetch('/api/stats', {
+          headers: { 'x-session-id': getClientSessionId() },
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (mounted) {
+          setLiveUsers(Number(data.liveUsers) || 0);
+        }
+      } catch {
+        // Keep previous count if stats fetch fails.
+      }
+    };
+
+    fetchStats();
+    const timer = setInterval(fetchStats, 15000);
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   const handleNewProject = async () => {
     setActiveNav('new-project');
@@ -51,6 +79,12 @@ export default function TopBar() {
 
       {/* Right Nav */}
       <div className="flex items-center gap-3">
+        <div className="px-3 py-1.5 rounded-md border border-cb-border bg-cb-surface-light">
+          <span className="text-[11px] font-medium text-cb-text-secondary">
+            {liveUsers} ClipBee Users Using This Right Now
+          </span>
+        </div>
+
         {/* PRO Badge */}
         <div className="px-2.5 py-1 rounded border border-cb-yellow">
           <span className="text-[11px] font-bold text-cb-yellow">PRO</span>
