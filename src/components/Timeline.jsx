@@ -23,11 +23,13 @@ export default function Timeline() {
     selectedTransition, autoTransitions,
     playheadPosition, setPlayheadPosition,
     splitTimelineAtPlayhead,
+    moveTimelineClip,
   } = useStore();
 
   const scrollerRef = useRef(null);
   const [viewportWidth, setViewportWidth] = useState(1);
   const [isScrubbing, setIsScrubbing] = useState(false);
+  const [draggingIndex, setDraggingIndex] = useState(null);
 
   const totalDuration = timelineClips.reduce((acc, c) => acc + c.duration, 0);
   const pixelsPerSecond = BASE_PIXELS_PER_SECOND * (zoomLevel / 100);
@@ -123,6 +125,35 @@ export default function Timeline() {
     splitTimelineAtPlayhead(playheadPosition);
   };
 
+  const getDropIndexFromTime = useCallback((time) => {
+    if (timelineClips.length === 0) return 0;
+    const t = clampTime(time);
+    let cursor = 0;
+    for (let i = 0; i < timelineClips.length; i++) {
+      const mid = cursor + (timelineClips[i].duration / 2);
+      if (t < mid) return i;
+      cursor += timelineClips[i].duration;
+    }
+    return timelineClips.length - 1;
+  }, [clampTime, timelineClips]);
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const from = Number(e.dataTransfer.getData('text/plain'));
+    if (!Number.isFinite(from)) {
+      setDraggingIndex(null);
+      return;
+    }
+    const targetTime = timeFromClientX(e.clientX);
+    const to = getDropIndexFromTime(targetTime);
+    moveTimelineClip(from, to);
+    setDraggingIndex(null);
+  };
+
   const rulerStep = useMemo(() => {
     if (pixelsPerSecond >= 100) return 0.25;
     if (pixelsPerSecond >= 70) return 0.5;
@@ -196,7 +227,13 @@ export default function Timeline() {
       </div>
 
       <div className="flex-1 min-h-0 px-4 pb-2">
-        <div ref={scrollerRef} className="relative h-full overflow-auto" onClick={handleTrackClick}>
+        <div
+          ref={scrollerRef}
+          className="relative h-full overflow-auto"
+          onClick={handleTrackClick}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+        >
           <div className="relative h-full min-w-full" style={{ width: timelineWidth + TRACK_LEFT_GUTTER }}>
             <div className="sticky top-0 z-10 h-6 bg-cb-timeline border-b border-cb-border/40">
               <div className="absolute inset-y-0 left-0 w-[64px] bg-cb-timeline border-r border-cb-border/40" />
@@ -233,11 +270,21 @@ export default function Timeline() {
                       <div key={tc.id}>
                         <div
                           className="absolute top-2 h-[62px] rounded border px-2 flex items-center gap-1.5 overflow-hidden"
+                          draggable
+                          onDragStart={(e) => {
+                            e.stopPropagation();
+                            e.dataTransfer.setData('text/plain', String(i));
+                            e.dataTransfer.effectAllowed = 'move';
+                            setDraggingIndex(i);
+                          }}
+                          onDragEnd={() => setDraggingIndex(null)}
                           style={{
                             left,
                             width,
                             backgroundColor: `${color}22`,
                             borderColor: color,
+                            opacity: draggingIndex === i ? 0.5 : 1,
+                            cursor: 'grab',
                           }}
                         >
                           <GripVertical size={10} style={{ color }} className="shrink-0" />

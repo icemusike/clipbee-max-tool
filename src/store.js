@@ -55,6 +55,23 @@ const useStore = create((set, get) => ({
       return { clips, timelineClips };
     }),
 
+  moveTimelineClip: (fromIndex, toIndex) =>
+    set((state) => {
+      if (
+        fromIndex < 0
+        || toIndex < 0
+        || fromIndex >= state.timelineClips.length
+        || toIndex >= state.timelineClips.length
+        || fromIndex === toIndex
+      ) {
+        return {};
+      }
+      const timelineClips = [...state.timelineClips];
+      const [moved] = timelineClips.splice(fromIndex, 1);
+      timelineClips.splice(toIndex, 0, moved);
+      return { timelineClips };
+    }),
+
   selectClip: (id) => set({ selectedClipId: id }),
   clearClipPreviewUrl: (id) =>
     set((state) => ({

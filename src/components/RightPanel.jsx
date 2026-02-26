@@ -11,7 +11,7 @@ const TRANSITIONS = [
 ];
 
 const FORMATS = ['MP4', 'MOV', 'WEBM', 'AVI'];
-const QUALITIES = ['4K', '1080p', '720p', '480p'];
+const QUALITIES = ['1080p', '720p', '480p'];
 const FPS_OPTIONS = [24, 30, 60];
 const RENDER_API_BASE = (import.meta.env.VITE_RENDER_API_URL || '').replace(/\/$/, '');
 

@@ -116,7 +116,6 @@ router.post('/render', upload.array('clips', 20), async (req, res) => {
 
     // Quality to resolution mapping
     const qualityMap = {
-      '4K': { width: 3840, height: 2160 },
       '1080p': { width: 1920, height: 1080 },
       '720p': { width: 1280, height: 720 },
       '480p': { width: 854, height: 480 },
