@@ -33,11 +33,17 @@ const useStore = create((set, get) => ({
   },
 
   removeClip: (id) =>
-    set((state) => ({
-      clips: state.clips.filter((c) => c.id !== id),
-      timelineClips: state.timelineClips.filter((c) => c.clipId !== id),
-      selectedClipId: state.selectedClipId === id ? null : state.selectedClipId,
-    })),
+    set((state) => {
+      const target = state.clips.find((c) => c.id === id);
+      if (target?.url) {
+        try { URL.revokeObjectURL(target.url); } catch { /* no-op */ }
+      }
+      return {
+        clips: state.clips.filter((c) => c.id !== id),
+        timelineClips: state.timelineClips.filter((c) => c.clipId !== id),
+        selectedClipId: state.selectedClipId === id ? null : state.selectedClipId,
+      };
+    }),
 
   reorderClips: (fromIndex, toIndex) =>
     set((state) => {
@@ -101,6 +107,24 @@ const useStore = create((set, get) => ({
       clips: state.clips.map((c) => (c.id === id ? { ...c, url: '' } : c)),
       selectedClipId: state.selectedClipId === id ? null : state.selectedClipId,
     })),
+
+  refreshClipPreviewUrl: (id) => {
+    const state = get();
+    const clip = state.clips.find((c) => c.id === id);
+    if (!clip?.file) return false;
+
+    const nextUrl = URL.createObjectURL(clip.file);
+    set((s) => ({
+      clips: s.clips.map((c) => {
+        if (c.id !== id) return c;
+        if (c.url) {
+          try { URL.revokeObjectURL(c.url); } catch { /* no-op */ }
+        }
+        return { ...c, url: nextUrl };
+      }),
+    }));
+    return true;
+  },
 
   splitTimelineAtPlayhead: (positionSeconds) =>
     set((state) => {

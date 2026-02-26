@@ -12,12 +12,13 @@ export default function CenterArea() {
   const {
     clips, selectedClipId, isPlaying, setIsPlaying,
     currentTime, setCurrentTime, volume, setVolume,
-    clearClipPreviewUrl,
+    clearClipPreviewUrl, refreshClipPreviewUrl,
   } = useStore();
 
   const videoRef = useRef(null);
   const progressRef = useRef(null);
   const previewContainerRef = useRef(null);
+  const blobRetryRef = useRef(new Set());
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -100,6 +101,13 @@ export default function CenterArea() {
   };
 
   const handleVideoError = () => {
+    if (activeClip?.id && activeClip.url?.startsWith('blob:') && !blobRetryRef.current.has(activeClip.id)) {
+      const refreshed = refreshClipPreviewUrl(activeClip.id);
+      if (refreshed) {
+        blobRetryRef.current.add(activeClip.id);
+        return;
+      }
+    }
     if (activeClip?.id) {
       clearClipPreviewUrl(activeClip.id);
     }

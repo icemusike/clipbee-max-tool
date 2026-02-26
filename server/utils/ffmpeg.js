@@ -177,34 +177,31 @@ function renderWithTransitions(normalizedClips, outputPath, transitionType, tran
     });
 
     let videoLabel = '0:v';
-    let audioLabel = '0:a';
     let cumulativeDuration = normalizedClips[0].duration;
     const filterParts = [];
 
     for (let i = 1; i < normalizedClips.length; i++) {
       const nextVideoLabel = `${i}:v`;
-      const nextAudioLabel = `${i}:a`;
       const videoOut = `v${i}`;
-      const audioOut = `a${i}`;
       const offset = Math.max(0, cumulativeDuration - transitionDuration);
 
       filterParts.push(
         `[${videoLabel}][${nextVideoLabel}]xfade=transition=${transitionType}:duration=${transitionDuration.toFixed(3)}:offset=${offset.toFixed(3)}[${videoOut}]`,
       );
-      filterParts.push(
-        `[${audioLabel}][${nextAudioLabel}]acrossfade=d=${transitionDuration.toFixed(3)}[${audioOut}]`,
-      );
 
       videoLabel = videoOut;
-      audioLabel = audioOut;
       cumulativeDuration += normalizedClips[i].duration - transitionDuration;
     }
+
+    // Audio: keep a stable concat chain to avoid crossfade filter incompatibilities.
+    const audioInputs = normalizedClips.map((_, i) => `[${i}:a]`).join('');
+    filterParts.push(`${audioInputs}concat=n=${normalizedClips.length}:v=0:a=1[aout]`);
 
     command
       .complexFilter(filterParts)
       .outputOptions([
         '-map', `[${videoLabel}]`,
-        '-map', `[${audioLabel}]`,
+        '-map', '[aout]',
         '-c:v', 'libx264',
         '-preset', 'fast',
         '-c:a', 'aac',
@@ -234,7 +231,7 @@ function getTransitionFilter(transition) {
   const map = {
     fade: 'fade',
     dissolve: 'fade',
-    slide: 'slideleft',
+    slide: 'fade',
   };
   return map[transition] || 'fade';
 }
