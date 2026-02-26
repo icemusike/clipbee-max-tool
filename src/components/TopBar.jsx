@@ -2,9 +2,28 @@ import {
   Sparkles,
 } from 'lucide-react';
 import useStore from '../store';
+import { getClientSessionId } from '../utils/session';
 
 export default function TopBar() {
-  const { setActiveNav } = useStore();
+  const { setActiveNav, resetProject } = useStore();
+
+  const handleNewProject = async () => {
+    setActiveNav('new-project');
+    resetProject();
+    localStorage.removeItem('clipbee-project-last');
+
+    try {
+      await fetch('/api/cleanup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-session-id': getClientSessionId(),
+        },
+      });
+    } catch {
+      // Keep local reset behavior even if server cleanup request fails.
+    }
+  };
 
   return (
     <header className="flex items-center justify-between h-14 px-6 bg-cb-surface border-b border-cb-border shrink-0">
@@ -43,7 +62,7 @@ export default function TopBar() {
         {/* Nav Buttons */}
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setActiveNav('new-project')}
+            onClick={handleNewProject}
             className="flex items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-semibold bg-cb-yellow text-cb-dark"
           >
             <Sparkles size={14} />

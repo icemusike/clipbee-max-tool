@@ -1,13 +1,17 @@
 import {
-  ArrowRight, Blend, MoveHorizontal, Sparkles, ChevronDown, Download, X, Play,
+  ArrowRight, Blend, MoveHorizontal, Sparkles, ChevronDown, Download, X, Play, Waypoints, UnfoldHorizontal, PanelTop,
 } from 'lucide-react';
 import useStore from '../store';
 import { useState } from 'react';
+import { getClientSessionId } from '../utils/session';
 
 const TRANSITIONS = [
   { id: 'fade', label: 'Fade', icon: ArrowRight },
   { id: 'dissolve', label: 'Dissolve', icon: Blend },
-  { id: 'slide', label: 'Slide', icon: MoveHorizontal },
+  { id: 'slideleft', label: 'Slide L', icon: MoveHorizontal },
+  { id: 'slideright', label: 'Slide R', icon: UnfoldHorizontal },
+  { id: 'wipeleft', label: 'Wipe L', icon: Waypoints },
+  { id: 'wiperight', label: 'Wipe R', icon: PanelTop },
 ];
 
 const FORMATS = ['MP4', 'MOV', 'WEBM', 'AVI'];
@@ -111,6 +115,9 @@ export default function RightPanel() {
 
       const response = await fetch(`${RENDER_API_BASE}/api/render`, {
         method: 'POST',
+        headers: {
+          'x-session-id': getClientSessionId(),
+        },
         body: formData,
       });
 

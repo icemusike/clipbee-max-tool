@@ -14,6 +14,7 @@ const baseDir = process.env.STORAGE_DIR || (isVercel ? '/tmp' : join(__dirname, 
 
 const uploadsDir = join(baseDir, 'uploads');
 const outputDir = join(baseDir, 'output');
+const MAX_MEDIA_AGE_MS = 15 * 60 * 1000;
 
 // Ensure directories exist
 [uploadsDir, outputDir].forEach((dir) => {
@@ -54,6 +55,58 @@ router.use((req, res, next) => {
   req.sessionId = req.headers['x-session-id'] || uuidv4();
   next();
 });
+
+function deleteFileSafe(path) {
+  try { fs.unlinkSync(path); } catch { /* noop */ }
+}
+
+function clearDirectoryRecursive(dir) {
+  if (!fs.existsSync(dir)) return;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  entries.forEach((entry) => {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      clearDirectoryRecursive(fullPath);
+      try { fs.rmdirSync(fullPath); } catch { /* noop */ }
+    } else {
+      deleteFileSafe(fullPath);
+    }
+  });
+}
+
+function cleanupExpiredMedia(dir, maxAgeMs) {
+  if (!fs.existsSync(dir)) return;
+  const now = Date.now();
+  const walk = (current) => {
+    const entries = fs.readdirSync(current, { withFileTypes: true });
+    entries.forEach((entry) => {
+      const fullPath = join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+        try {
+          const remaining = fs.readdirSync(fullPath);
+          if (remaining.length === 0) fs.rmdirSync(fullPath);
+        } catch { /* noop */ }
+        return;
+      }
+      try {
+        const stat = fs.statSync(fullPath);
+        if (now - stat.mtimeMs > maxAgeMs) {
+          fs.unlinkSync(fullPath);
+        }
+      } catch { /* noop */ }
+    });
+  };
+  walk(dir);
+}
+
+function runMediaCleanupSweep() {
+  cleanupExpiredMedia(uploadsDir, MAX_MEDIA_AGE_MS);
+  cleanupExpiredMedia(outputDir, MAX_MEDIA_AGE_MS);
+}
+
+runMediaCleanupSweep();
+setInterval(runMediaCleanupSweep, 5 * 60 * 1000);
 
 // Upload clips
 router.post('/upload', upload.array('clips', 20), async (req, res) => {
@@ -96,6 +149,7 @@ router.post('/upload', upload.array('clips', 20), async (req, res) => {
 // Render / merge clips — returns a URL to the rendered video for preview + download
 router.post('/render', upload.array('clips', 20), async (req, res) => {
   try {
+    runMediaCleanupSweep();
     const files = req.files || [];
     if (files.length === 0) {
       return res.status(400).json({ error: 'No clips provided' });
@@ -146,17 +200,17 @@ router.post('/render', upload.array('clips', 20), async (req, res) => {
 
     // Cleanup uploaded source files
     files.forEach((f) => {
-      try { fs.unlinkSync(f.path); } catch { }
+      deleteFileSafe(f.path);
     });
 
     // Return JSON with the video URL so the client can preview + download
     const videoUrl = `/output/${outputFilename}`;
     res.json({ url: videoUrl, filename: outputFilename });
 
-    // Schedule cleanup of the output file after 30 minutes
+    // Schedule cleanup of the output file after 15 minutes
     setTimeout(() => {
-      try { fs.unlinkSync(outputPath); } catch { }
-    }, 30 * 60 * 1000);
+      deleteFileSafe(outputPath);
+    }, MAX_MEDIA_AGE_MS);
   } catch (error) {
     console.error('Render error:', error);
     res.status(500).json({ error: error.message });
@@ -184,8 +238,20 @@ router.post('/info', upload.single('clip'), async (req, res) => {
 
     // Cleanup
     setTimeout(() => {
-      try { fs.unlinkSync(req.file.path); } catch { }
+      deleteFileSafe(req.file.path);
     }, 1000);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/cleanup', (req, res) => {
+  try {
+    const sessionDir = join(uploadsDir, req.sessionId || 'default');
+    clearDirectoryRecursive(sessionDir);
+    try { fs.rmdirSync(sessionDir); } catch { /* noop */ }
+    runMediaCleanupSweep();
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

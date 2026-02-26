@@ -3,10 +3,13 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { join, dirname } from 'path';
 import fs from 'fs';
+import { spawnSync } from 'child_process';
 
 // Set ffmpeg and ffprobe binary paths from the npm installers
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 ffmpeg.setFfprobePath(ffprobeInstaller.path);
+
+let supportedXfadeTransitionsCache = null;
 
 /**
  * Get video file info (duration, resolution, codec).
@@ -76,7 +79,8 @@ export function mergeClips(inputPaths, outputPath, options = {}) {
 
       if (effective > 0.01) {
         try {
-          await renderWithTransitions(normalizedClips, outputPath, getTransitionFilter(transition), effective);
+          const safeTransition = getSafeTransitionFilter(transition);
+          await renderWithTransitions(normalizedClips, outputPath, safeTransition, effective);
         } catch (transitionErr) {
           // Some ffmpeg builds reject specific transition graphs/types; fallback to reliable concat.
           console.warn('Transition render failed, falling back to concat:', transitionErr?.message || transitionErr);
@@ -224,14 +228,39 @@ function cleanupFiles(paths) {
   }
 }
 
-/**
- * Map user-friendly transition names to FFmpeg xfade transition types.
- */
+function getSafeTransitionFilter(transition) {
+  const requested = getTransitionFilter(transition);
+  const supported = getSupportedXfadeTransitions();
+  return supported.has(requested) ? requested : 'fade';
+}
+
+function getSupportedXfadeTransitions() {
+  if (supportedXfadeTransitionsCache) return supportedXfadeTransitionsCache;
+  try {
+    const result = spawnSync(ffmpegInstaller.path, ['-hide_banner', '-h', 'filter=xfade'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    const output = `${result.stdout || ''}\n${result.stderr || ''}`;
+    const matches = output.match(/\b[a-z][a-z0-9_]*\b/g) || [];
+    supportedXfadeTransitionsCache = new Set(matches);
+    if (!supportedXfadeTransitionsCache.has('fade')) {
+      supportedXfadeTransitionsCache.add('fade');
+    }
+  } catch {
+    supportedXfadeTransitionsCache = new Set(['fade', 'dissolve', 'slideleft', 'slideright', 'wipeleft', 'wiperight']);
+  }
+  return supportedXfadeTransitionsCache;
+}
+
 function getTransitionFilter(transition) {
   const map = {
     fade: 'fade',
-    dissolve: 'fade',
-    slide: 'fade',
+    dissolve: 'dissolve',
+    slideleft: 'slideleft',
+    slideright: 'slideright',
+    wipeleft: 'wipeleft',
+    wiperight: 'wiperight',
   };
   return map[transition] || 'fade';
 }
